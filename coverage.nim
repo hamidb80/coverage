@@ -8,7 +8,7 @@ type
         procName: string, 
         lineRange: HSlice[int, int]]
 
-var coverageResults = initTable[string, seq[ptr CovChunk]]()
+
 var procBounderies: Table[ptr CovChunk, CovChunkInfo]
 
 template derefChunk(dest: var CovChunk, src: ptr CovChunk) =
@@ -33,11 +33,6 @@ proc getLastLineNumber(node: NimNOde, firstLine: int = 0): int=
 
 proc registerCovChunk(fileName, procName: string, lineRange: HSlice[int, int], chunk: var CovChunk, ) =
     procBounderies[addr chunk] = (fileName, procName, lineRange)
-
-    if coverageResults.hasKey fileName:
-        coverageResults[fileName].add(addr chunk)
-    else:
-        coverageResults[fileName] = @[addr chunk]
 
 proc transform(n, track, list: NimNode, forceAdd=false): NimNode {.compileTime.} =
     result = copyNimNode(n)
@@ -91,40 +86,10 @@ macro cov*(body: untyped): untyped =
         newStmtList(listVar, transform(body,trackSym, trackList, true))
 
 proc coveredLinesInFile*(fileName: string): seq[CovData] =
-    var tmp : seq[ptr CovChunk]
-    shallowCopy(tmp, coverageResults[fileName])
-    for i in 0 ..< tmp.len:
-        var covChunk : CovChunk
-        derefChunk(covChunk, tmp[i])
-        result.add covChunk
-    result.sort(proc (a, b: CovData): int = cmp(a.lineNo, b.lineNo))
-
-    var newRes = newSeq[CovData](result.len)
-    # Deduplicate lines
-    var j = 0
-    var lastLine = 0
-    for i in 0 ..< result.len:
-        if result[i].lineNo == lastLine:
-            if result[i].passes == 0:
-                newRes[j - 1].passes = 0
-        else:
-            lastLine = result[i].lineNo
-            newRes[j] = result[i]
-            inc j
-    newRes.setLen(j)
-    shallowCopy(result, newRes)
+    discard
 
 proc coverageInfoByFile*(): Table[string, tuple[linesTracked, linesCovered: int]] =
-    for k, v in coverageResults:
-        var linesTracked = 0
-        var linesCovered = 0
-        for i in 0 ..< v.len:
-            var covChunk : CovChunk
-            derefChunk(covChunk, v[i])
-            for data in covChunk:
-                inc linesTracked
-                if data.passes != 0: inc linesCovered
-        result[k] = (linesTracked, linesCovered)
+    discard
 
 proc coveragePercentageByFile*(): Table[string, float] =
     for k, v in coverageInfoByFile():
@@ -144,16 +109,7 @@ proc incompletelyCoveredProcs*(): seq[tuple[info: CovChunkInfo, uncoverdLines: s
             result.add (info, linesUncovered)
 
 proc totalCoverage*(): float =
-    var linesTracked = 0
-    var linesCovered = 0
-    for k, v in coverageResults:
-        for i in 0 ..< v.len:
-            var covChunk : CovChunk
-            derefChunk(covChunk, v[i])
-            linesTracked.inc covChunk.len 
-            for data in covChunk:
-                if data.passes != 0: inc linesCovered
-    result = linesCovered.float / linesTracked.float
+    discard
 
 when not defined(js) and not defined(emscripten):
     import os, osproc
