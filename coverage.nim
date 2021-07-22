@@ -1,4 +1,4 @@
-import macros, tables, strutils, os, sequtils, algorithm, sugar
+import macros, tables, strutils, os, sequtils
 
 type 
     CovData* = tuple[lineNo: int, passes: int]
@@ -8,11 +8,10 @@ type
         procName: string, 
         lineRange: HSlice[int, int]]
 
+    CovReport* = tuple[procInfo: CovChunkInfo, coveredLines, uncoveredLines:seq[int], tracked: int]
+
 
 var procBounderies: Table[ptr CovChunk, CovChunkInfo]
-
-template derefChunk(dest: var CovChunk, src: ptr CovChunk) =
-    shallowCopy(dest, src[])
 
 proc getFileName(n: NimNode): string =
     let ln = n.lineInfo
@@ -31,7 +30,7 @@ proc getLastLineNumber(node: NimNOde, firstLine: int = 0): int=
   else:
     firstline
 
-proc registerCovChunk(fileName, procName: string, lineRange: HSlice[int, int], chunk: var CovChunk, ) =
+proc registerCovChunk(fileName, procName: string, lineRange: HSlice[int, int], chunk: var CovChunk) =
     procBounderies[addr chunk] = (fileName, procName, lineRange)
 
 proc transform(n, track, list: NimNode, forceAdd=false): NimNode {.compileTime.} =
@@ -83,34 +82,59 @@ macro cov*(body: untyped): untyped =
                     trackSym
             ))
 
-        newStmtList(listVar, transform(body,trackSym, trackList, true))
+        result = newStmtList(listVar, transform(body,trackSym, trackList, true))
+        debugecho result.repr
 
-proc coveredLinesInFile*(fileName: string): seq[CovData] =
-    discard
+# report -------------------------------------------------
 
-proc coverageInfoByFile*(): Table[string, tuple[linesTracked, linesCovered: int]] =
-    discard
+proc coverageReport*(): seq[CovReport] =
+    for covChunkRef, info in procBounderies:
+        var report: CovReport
+        let covChunk = covChunkRef[]
+        report.tracked = covChunk.len
+        report.procInfo = info
+
+        for line in covChunk:
+            if line.passes == 0: 
+                report.uncoveredLines.add line.lineNo
+            else:
+                report.coveredLines.add line.lineNo
+
+        result.add report
+
+proc coveredLinesInFile*(reports: seq[CovReport], fileName: string): seq[int] =
+    for r in reports:
+        if r.procInfo.fileName == fileName:
+            result.add r.coveredLines
+
+proc coverageInfoByFile*(reports: seq[CovReport]): Table[string, tuple[covered,tracked: int]] =
+    template addToRes(fname:string,cvrd, trckd: int)=
+        if fname in result:
+            result[fname].covered += cvrd
+            result[fname].tracked += trckd
+        else:
+            result[fname] = (cvrd, trckd)
+
+    for r in reports:
+        for r in reports:
+            r.procInfo.fileName.addToRes(r.coveredLines.len, r.tracked)
 
 proc coveragePercentageByFile*(): Table[string, float] =
-    for k, v in coverageInfoByFile():
-        result[k] = v.linesCovered.float / v.linesTracked.float
+    for fname, info in coverageInfoByFile(coverageReport()):
+        result[fname] = info.covered.float / info.tracked.float
 
-proc incompletelyCoveredProcs*(): seq[tuple[info: CovChunkInfo, uncoverdLines: seq[int]]] =
-    for covChunkRef, info in procBounderies:
-        var covChunk : CovChunk
-        derefChunk(covChunk, covChunkRef)
-            
-        let linesUncovered = collect newseq:
-            for line in covChunk:
-                if line.passes == 0: 
-                    line.lineNo
+proc incompletelyCoveredProcs*(reports: seq[CovReport]): seq[CovReport]=
+    reports.filterIt it.uncoveredLines.len != 0
 
-        if linesUncovered.len != 0:
-            result.add (info, linesUncovered)
+proc totalCoverage*(reports: seq[CovReport]): float =
+    var total, covered: int
+    for r in reports:
+        total.inc r.tracked
+        covered.inc r.coveredLines.len
 
-proc totalCoverage*(): float =
-    discard
+    covered / total
 
+#[
 when not defined(js) and not defined(emscripten):
     import os, osproc
     import json
@@ -141,9 +165,6 @@ when not defined(js) and not defined(emscripten):
                 writeFile(covFile, $jCov)
                 break
             inc i
-
-    template getFileSourceCode(p: string): string =
-        readFile(p)
 
     proc expandCovSeqIfNeeded(s: var seq[int], toLen: int) =
         if s.len <= toLen:
@@ -179,7 +200,7 @@ when not defined(js) and not defined(emscripten):
         for k, v in covData:
             jCovData[k] = %* {
                 "l": v,
-                "s": getFileSourceCode(k)
+                "s": readFile(k) # get Source Code
             }
 
         const htmlTemplate = staticRead("coverageTemplate.html")
@@ -187,8 +208,6 @@ when not defined(js) and not defined(emscripten):
 
     if getEnv("NIM_COVERAGE_DIR").len > 0:
         addQuitProc(saveCovResults)
-
-    proc md5OfFile(path: string): string = $getMD5(readFile(path))
 
     proc sendCoverageResultsToCoveralls*() =
         var request = newJObject()
@@ -221,7 +240,7 @@ when not defined(js) and not defined(emscripten):
                 files.add (%* {
                     "name": relativePath / k,
                     "coverage": jLines,
-                    "source_digest": md5OfFile(k),
+                    "source_digest": getMD5(readFile(k)),
                     #"source" = newJString(readFile(k))
                 })
 
@@ -230,3 +249,4 @@ when not defined(js) and not defined(emscripten):
             echo "COVERALLS REQUEST: ", $request
             data["json_file"] = ("file.json", "application/json", $request)
             echo "COVERALLS RESPONSE: ", newHttpClient().postContent("https://coveralls.io/api/v1/jobs", multipart=data)
+]#

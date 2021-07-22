@@ -8,12 +8,10 @@ proc test1(x: int): bool {.cov.} =
         echo "x is ", x
 
 discard test1(0)
-
-doAssert(totalCoverage() == 2/3)
+doAssert(totalCoverage(coverageReport()) == 2/3)
 
 discard test1(1)
-
-doAssert(totalCoverage() == 1.0)
+doAssert(totalCoverage(coverageReport()) == 1.0)
 
 proc toTest(x, y: int) {.cov.} =
     if x == 8:
@@ -50,5 +48,5 @@ when defined(js):
     echo incompletelyCoveredProcs()
     echo coveragePercentageByFile()
     echo coveredLinesInFile(convert(cwd()) & "/test.nim")
-else:
-    sendCoverageResultsToCoveralls()
+# else:
+#     sendCoverageResultsToCoveralls()

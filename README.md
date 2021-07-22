@@ -49,7 +49,7 @@ Add "import coverage" and the top of your sources and add "{.cov.}" to every pro
 export NIM_COVERAGE_DIR=coverage_results
 mkdir -p "$NIM_COVERAGE_DIR"
 
-nim c -r your_tests.nim
+nim r your_tests.nim
 nimcoverage genreport
 ```
 
